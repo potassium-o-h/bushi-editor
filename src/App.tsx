@@ -17,6 +17,7 @@ type PageData = {
   rotation: Rotation;
   fitMode: FitMode;
   showNomburu: boolean;
+  isBlank: boolean;
 };
 
 type FillField = "mangaPage" | "summary" | "author";
@@ -85,6 +86,7 @@ function App() {
         rotation: 0 as Rotation,
         fitMode: "contain" as FitMode,
         showNomburu: true,
+        isBlank: false,
       };
     });
 
@@ -113,6 +115,7 @@ function App() {
     updatePageOption(page, {
       fileName: file.name,
       imageUrl,
+      isBlank: false,
     });
 
     setSelectedPage(page);
@@ -213,9 +216,15 @@ function App() {
         const text = String(reader.result);
         const data = JSON.parse(text) as SaveData;
 
+        const fixedPages = data.pages.map((p) => ({
+          ...p,
+          isBlank: p.isBlank ?? false,
+          showNomburu: p.showNomburu ?? true,
+        }));
+
         setPageCount(data.pageCount);
-        setPages(data.pages);
-        setSelectedPage(data.pages[0]?.page ?? null);
+        setPages(fixedPages);
+        setSelectedPage(fixedPages[0]?.page ?? null);
         setReaderStep(0);
       } catch {
         alert("読み込みに失敗しました。保存したJSONファイルを選んでください。");
@@ -332,7 +341,15 @@ function App() {
           boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
         }}
       >
-        {pageData.imageUrl ? (
+        {pageData.isBlank ? (
+          <div
+            style={{
+              width: "100%",
+              height: "100%",
+              backgroundColor: "white",
+            }}
+          />
+        ) : pageData.imageUrl ? (
           <img
             src={pageData.imageUrl}
             alt={pageData.fileName}
@@ -405,7 +422,7 @@ function App() {
     ctx.fillStyle = "white";
     ctx.fillRect(0, 0, pageW, pageH);
 
-    if (pageData.imageUrl) {
+    if (!pageData.isBlank && pageData.imageUrl) {
       const img = await loadImage(pageData.imageUrl);
 
       ctx.save();
@@ -454,10 +471,10 @@ function App() {
       return;
     }
 
-    const missingImages = pages.filter((p) => !p.imageUrl);
+    const missingImages = pages.filter((p) => !p.imageUrl && !p.isBlank);
     if (missingImages.length > 0) {
       const ok = confirm(
-        `画像未登録のページが ${missingImages.length} ページあります。そのまま出力しますか？`
+        `画像未登録かつ白紙指定されていないページが ${missingImages.length} ページあります。そのまま出力しますか？`
       );
       if (!ok) return;
     }
@@ -475,10 +492,15 @@ function App() {
     for (const [sheetNumber, sheetPages] of groups) {
       if (sheetPages.length !== 2) continue;
 
-      const sortedPages = [...sheetPages].sort((a, b) => b.page - a.page);
+      const sortedPages = [...sheetPages].sort((a, b) => a.page - b.page);
 
-      const leftPage = sortedPages[0];
-      const rightPage = sortedPages[1];
+      let leftPage = sortedPages[0];
+      let rightPage = sortedPages[1];
+
+      if (sheetNumber !== "1-1") {
+        leftPage = sortedPages[1];
+        rightPage = sortedPages[0];
+      }
 
       const leftCanvas = await renderPageToCanvas(leftPage);
       const rightCanvas = await renderPageToCanvas(rightPage);
@@ -543,12 +565,17 @@ function App() {
   let readerLeftPage: PageData | null = null;
   let readerRightPage: PageData | null = null;
 
+  const maxReaderStep = Math.ceil(pageCount / 2);
+
   if (readerStep === 0) {
     readerLeftPage = pages.find((p) => p.page === 1) ?? null;
     readerRightPage = null;
   } else if (readerStep === 1) {
     readerLeftPage = pages.find((p) => p.page === 3) ?? null;
     readerRightPage = pages.find((p) => p.page === 2) ?? null;
+  } else if (readerStep === maxReaderStep) {
+    readerLeftPage = null;
+    readerRightPage = pages.find((p) => p.page === pageCount) ?? null;
   } else {
     const rightPageNumber = readerStep * 2;
     const leftPageNumber = rightPageNumber + 1;
@@ -556,8 +583,6 @@ function App() {
     readerLeftPage = pages.find((p) => p.page === leftPageNumber) ?? null;
     readerRightPage = pages.find((p) => p.page === rightPageNumber) ?? null;
   }
-
-  const maxReaderStep = Math.ceil((pageCount - 2) / 2);
 
   return (
     <div
@@ -615,7 +640,10 @@ function App() {
             <b>ノンブルを表示</b>のチェックを外すと、そのページだけページ番号を非表示にできます。
           </li>
           <li>
-            <b>電子版完成プレビュー</b>では、冊子を読むように見開きで確認できます。
+            <b>このページを白紙にする</b>をオンにすると、そのページは画像を表示せず白紙として扱います。
+          </li>
+          <li>
+            <b>電子版完成プレビュー</b>では、冊子を読むように見開きで確認できます。最後に裏表紙も確認できます。
           </li>
           <li>
             <b>印刷面PNGを書き出し</b>を押すと、同じ面番号のページ同士を横長画像に統合し、ZIPファイルとして出力します。
@@ -858,7 +886,7 @@ function App() {
                 </select>
               </div>
 
-              <div>
+              <div style={{ marginBottom: "8px" }}>
                 <label>
                   <input
                     type="checkbox"
@@ -870,6 +898,21 @@ function App() {
                     }
                   />
                   ノンブルを表示
+                </label>
+              </div>
+
+              <div>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={selectedPageData.isBlank}
+                    onChange={(e) =>
+                      updatePageOption(selectedPageData.page, {
+                        isBlank: e.target.checked,
+                      })
+                    }
+                  />
+                  このページを白紙にする
                 </label>
               </div>
             </div>
@@ -901,6 +944,8 @@ function App() {
                 ? "表紙"
                 : readerStep === 1
                 ? "中表紙 / 表紙2"
+                : readerStep === maxReaderStep
+                ? "裏表紙"
                 : `実ページ ${readerStep * 2 + 1} - ${readerStep * 2}`}
             </span>
 
