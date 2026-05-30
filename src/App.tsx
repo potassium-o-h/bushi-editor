@@ -30,7 +30,7 @@ function App() {
   const [pageCount, setPageCount] = useState(24);
   const [pages, setPages] = useState<PageData[]>([]);
   const [selectedPage, setSelectedPage] = useState<number | null>(null);
-  const [readerPage, setReaderPage] = useState(1);
+  const [readerStep, setReaderStep] = useState(0);
 
   const [fillStart, setFillStart] = useState<{
     page: number;
@@ -58,7 +58,7 @@ function App() {
   }
 
   function getSpreadSide(page: number): "左" | "右" {
-    return page % 2 === 1 ? "右" : "左";
+    return page % 2 === 1 ? "左" : "右";
   }
 
   function getSheetNumber(page: number, totalPages: number) {
@@ -90,7 +90,7 @@ function App() {
 
     setPages(newPages);
     setSelectedPage(1);
-    setReaderPage(1);
+    setReaderStep(0);
   }
 
   function updatePage(page: number, field: FillField, value: string) {
@@ -216,7 +216,7 @@ function App() {
         setPageCount(data.pageCount);
         setPages(data.pages);
         setSelectedPage(data.pages[0]?.page ?? null);
-        setReaderPage(1);
+        setReaderStep(0);
       } catch {
         alert("読み込みに失敗しました。保存したJSONファイルを選んでください。");
       }
@@ -495,27 +495,26 @@ function App() {
 
       ctx.drawImage(leftCanvas, 0, 0);
       ctx.drawImage(rightCanvas, leftCanvas.width, 0);
+
       if (sheetNumber === "1-1") {
-  const centerX = leftCanvas.width;
+        const centerX = leftCanvas.width;
 
-  ctx.strokeStyle = "black";
-  ctx.lineWidth = 6;
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = 6;
 
-  const markLength = 90;
-  const markOffset = 260;
+        const markLength = 90;
+        const markOffset = 260;
 
-  // 上側のホチキス位置
-  ctx.beginPath();
-  ctx.moveTo(centerX, markOffset);
-  ctx.lineTo(centerX, markOffset + markLength);
-  ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(centerX, markOffset);
+        ctx.lineTo(centerX, markOffset + markLength);
+        ctx.stroke();
 
-  // 下側のホチキス位置
-  ctx.beginPath();
-  ctx.moveTo(centerX, sheetCanvas.height - markOffset - markLength);
-  ctx.lineTo(centerX, sheetCanvas.height - markOffset);
-  ctx.stroke();
-}
+        ctx.beginPath();
+        ctx.moveTo(centerX, sheetCanvas.height - markOffset - markLength);
+        ctx.lineTo(centerX, sheetCanvas.height - markOffset);
+        ctx.stroke();
+      }
 
       await new Promise<void>((resolve) => {
         sheetCanvas.toBlob((blob) => {
@@ -541,8 +540,24 @@ function App() {
   const selectedPageData =
     pages.find((p) => p.page === selectedPage) ?? pages[0] ?? null;
 
-  const readerLeftPage = pages.find((p) => p.page === readerPage + 1) ?? null;
-  const readerRightPage = pages.find((p) => p.page === readerPage) ?? null;
+  let readerLeftPage: PageData | null = null;
+  let readerRightPage: PageData | null = null;
+
+  if (readerStep === 0) {
+    readerLeftPage = pages.find((p) => p.page === 1) ?? null;
+    readerRightPage = null;
+  } else if (readerStep === 1) {
+    readerLeftPage = pages.find((p) => p.page === 3) ?? null;
+    readerRightPage = pages.find((p) => p.page === 2) ?? null;
+  } else {
+    const rightPageNumber = readerStep * 2;
+    const leftPageNumber = rightPageNumber + 1;
+
+    readerLeftPage = pages.find((p) => p.page === leftPageNumber) ?? null;
+    readerRightPage = pages.find((p) => p.page === rightPageNumber) ?? null;
+  }
+
+  const maxReaderStep = Math.ceil((pageCount - 2) / 2);
 
   return (
     <div
@@ -561,139 +576,87 @@ function App() {
         }}
       >
         <h2 style={{ color: "#222" }}>使い方</h2>
+
         <ol>
-          <ol>
-  <li>
-    <b>総ページ数</b>を入力します。中綴じ冊子は紙1枚で4ページになるため、必ず4の倍数にしてください。
-  </li>
-  <li>
-    <b>ページ表を作成</b>を押すと、実ページ・ノンブル・面番号・見開き左右が自動で作成されます。
-  </li>
-  <li>
-    最初の4ページには「表紙1」「表紙2」「中表紙」「目次」、最後の4ページには「作者の一言」「編集後記＆奥付」「表紙3」「表紙4」が自動入力されます。
-  </li>
-  <li>
-    <b>概要</b>には、そのページの内容を書きます。例：「漫画本編」「扉絵」「あとがき」など。
-  </li>
-  <li>
-    <b>作者</b>には、そのページを担当した人の名前を入力します。
-  </li>
-  <li>
-    <b>漫画ページ</b>には、作品内のページ番号を入力します。セル右下の黒い■をドラッグすると、Excelのように連番入力できます。
-  </li>
-  <li>
-    <b>概要・作者</b>も、セル右下の黒い■をドラッグすると下方向へコピーできます。
-  </li>
-  <li>
-    表の行をクリックすると、そのページが選択され、右側の<b>ページ設定</b>と<b>紙面プレビュー</b>が切り替わります。
-  </li>
-  <li>
-    <b>原稿ファイル</b>から画像を登録できます。対応形式はブラウザで読み込めるPNG・JPGなどの画像です。
-  </li>
-  <li>
-    <b>回転</b>では、原稿画像を0°・90°・180°・270°に回転できます。縦横が逆の原稿を直す時に使います。
-  </li>
-  <li>
-    <b>配置</b>では、「全体表示」か「余白なし」を選べます。「全体表示」は画像全体を収め、「余白なし」はページ全面を埋めます。
-  </li>
-  <li>
-    <b>ノンブルを表示</b>のチェックを外すと、そのページだけページ番号を非表示にできます。扉ページや特殊ページに使います。
-  </li>
-  <li>
-    <b>紙面プレビュー</b>では、選択中のページに画像・回転・配置・ノンブルが反映された状態を確認できます。
-  </li>
-  <li>
-    <b>電子版完成プレビュー</b>では、冊子を読むように見開きで確認できます。右綴じ漫画の順番で表示されます。
-  </li>
-  <li>
-    <b>保存</b>を押すと、現在の編集データをJSONファイルとして保存できます。作業途中のバックアップに使います。
-  </li>
-  <li>
-    <b>読み込み</b>から保存したJSONファイルを選ぶと、前回の編集状態を復元できます。
-  </li>
-  <li>
-    <b>印刷面PNGを書き出し</b>を押すと、同じ面番号のページ同士を横長画像に統合し、ZIPファイルとして出力します。
-  </li>
-  <li>
-    出力されたPNGは、1-1、1-2、2-1、2-2……のように面番号ごとに分かれます。両面印刷時の表裏確認に使ってください。
-  </li>
-  <li>
-    1-1の印刷面には、中央の境界付近にホチキス位置の目印が入ります。
-  </li>
-</ol>
+          <li>
+            <b>総ページ数</b>を入力します。中綴じ冊子は紙1枚で4ページになるため、必ず4の倍数にしてください。
+          </li>
+          <li>
+            <b>ページ表を作成</b>を押すと、実ページ・ノンブル・面番号・見開き左右が自動で作成されます。
+          </li>
+          <li>
+            最初の4ページには「表紙1」「表紙2」「中表紙」「目次」、最後の4ページには「作者の一言」「編集後記＆奥付」「表紙3」「表紙4」が自動入力されます。
+          </li>
+          <li>
+            <b>概要</b>には、そのページの内容を書きます。例：「漫画本編」「扉絵」「あとがき」など。
+          </li>
+          <li>
+            <b>作者</b>には、そのページを担当した人の名前を入力します。
+          </li>
+          <li>
+            <b>漫画ページ</b>には、作品内のページ番号を入力します。セル右下の黒い■をドラッグすると、Excelのように連番入力できます。
+          </li>
+          <li>
+            <b>概要・作者</b>も、セル右下の黒い■をドラッグすると下方向へコピーできます。
+          </li>
+          <li>
+            表の行をクリックすると、そのページが選択され、右側の<b>ページ設定</b>と<b>紙面プレビュー</b>が切り替わります。
+          </li>
+          <li>
+            <b>原稿ファイル</b>から画像を登録できます。対応形式はブラウザで読み込めるPNG・JPGなどの画像です。
+          </li>
+          <li>
+            <b>回転</b>では、原稿画像を0°・90°・180°・270°に回転できます。縦横が逆の原稿を直す時に使います。
+          </li>
+          <li>
+            <b>配置</b>では、「全体表示」か「余白なし」を選べます。「全体表示」は画像全体を収め、「余白なし」はページ全面を埋めます。
+          </li>
+          <li>
+            <b>ノンブルを表示</b>のチェックを外すと、そのページだけページ番号を非表示にできます。
+          </li>
+          <li>
+            <b>電子版完成プレビュー</b>では、冊子を読むように見開きで確認できます。
+          </li>
+          <li>
+            <b>印刷面PNGを書き出し</b>を押すと、同じ面番号のページ同士を横長画像に統合し、ZIPファイルとして出力します。
+          </li>
+          <li>
+            1-1の印刷面には、中央の境界付近にホチキス位置の目印が入ります。
+          </li>
         </ol>
+
         <h3>用語説明</h3>
 
-<ul>
-  <li>
-    <b>実ページ</b><br />
-    冊子全体での物理的なページ番号です。
-    表紙1（表表紙）を1ページ目として数えます。
-  </li>
-
-  <li>
-    <b>ノンブル</b><br />
-    紙面に印刷されるページ番号です。
-    このソフトでは中表紙を1ページ目として計算します。
-    表紙や奥付などは非表示にすることもできます。
-  </li>
-
-  <li>
-    <b>面番号</b><br />
-    中綴じ印刷で同じ紙面になるページの組み合わせ番号です。
-    例：1-1、1-2、2-1……
-    「印刷面PNGを書き出し」を行うと、この面番号ごとに横長画像が生成されます。
-  </li>
-
-  <li>
-    <b>見開き左右</b><br />
-    本を開いた時に左ページなのか右ページなのかを示します。
-    本ソフトは右綴じ漫画を前提にしています。
-  </li>
-
-  <li>
-    <b>漫画ページ</b><br />
-    作品内でのページ番号です。
-    部誌全体のノンブルとは別に管理できます。
-    作品ごとに1ページから振り直すことを想定しています。
-  </li>
-
-  <li>
-    <b>概要</b><br />
-    そのページに何が掲載されるかを記録する欄です。
-    「漫画本編」「目次」「編集後記」などを入力します。
-  </li>
-
-  <li>
-    <b>作者</b><br />
-    そのページの担当者名です。
-    複数作品をまとめる部誌向けの管理項目です。
-  </li>
-
-  <li>
-    <b>全体表示（Contain）</b><br />
-    画像全体がページ内に収まるよう配置します。
-    余白が発生する場合があります。
-  </li>
-
-  <li>
-    <b>余白なし（Cover）</b><br />
-    ページ全体を画像で埋めるよう拡大します。
-    端が少し切れる場合があります。
-  </li>
-
-  <li>
-    <b>電子版完成プレビュー</b><br />
-    冊子として読んだ場合の見え方を確認する機能です。
-    右綴じ漫画の見開き順で表示されます。
-  </li>
-
-  <li>
-    <b>印刷面PNG</b><br />
-    面番号ごとに統合された印刷用画像です。
-    ZIP形式で出力され、両面印刷や製本時に使用できます。
-  </li>
-</ul>
+        <ul>
+          <li>
+            <b>実ページ</b><br />
+            冊子全体での物理的なページ番号です。表紙1（表表紙）を1ページ目として数えます。
+          </li>
+          <li>
+            <b>ノンブル</b><br />
+            紙面に印刷されるページ番号です。このソフトでは中表紙を1ページ目として計算します。
+          </li>
+          <li>
+            <b>面番号</b><br />
+            中綴じ印刷で同じ紙面になるページの組み合わせ番号です。
+          </li>
+          <li>
+            <b>見開き左右</b><br />
+            本を開いた時に左ページなのか右ページなのかを示します。
+          </li>
+          <li>
+            <b>漫画ページ</b><br />
+            作品内でのページ番号です。部誌全体のノンブルとは別に管理できます。
+          </li>
+          <li>
+            <b>全体表示</b><br />
+            画像全体がページ内に収まるよう配置します。余白が発生する場合があります。
+          </li>
+          <li>
+            <b>余白なし</b><br />
+            ページ全体を画像で埋めるよう拡大します。端が少し切れる場合があります。
+          </li>
+        </ul>
       </div>
 
       <div style={{ marginBottom: "20px" }}>
@@ -927,21 +890,23 @@ function App() {
         <div>
           <div style={{ marginBottom: "12px" }}>
             <button
-              onClick={() =>
-                setReaderPage(Math.min(pageCount - 1, readerPage + 2))
-              }
-              disabled={readerPage >= pageCount - 1}
+              onClick={() => setReaderStep(Math.min(maxReaderStep, readerStep + 1))}
+              disabled={readerStep >= maxReaderStep}
             >
               次の見開き
             </button>
 
             <span style={{ margin: "0 12px" }}>
-              実ページ {readerPage} - {Math.min(readerPage + 1, pageCount)}
+              {readerStep === 0
+                ? "表紙"
+                : readerStep === 1
+                ? "中表紙 / 表紙2"
+                : `実ページ ${readerStep * 2 + 1} - ${readerStep * 2}`}
             </span>
 
             <button
-              onClick={() => setReaderPage(Math.max(1, readerPage - 2))}
-              disabled={readerPage <= 1}
+              onClick={() => setReaderStep(Math.max(0, readerStep - 1))}
+              disabled={readerStep <= 0}
             >
               前の見開き
             </button>
