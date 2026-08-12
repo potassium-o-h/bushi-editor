@@ -1320,6 +1320,19 @@ function App() {
           ページ表を作成してください。
         </p>
       )}
+            <footer
+        style={{
+          marginTop: "48px",
+          paddingTop: "20px",
+          paddingBottom: "24px",
+          borderTop: "1px solid #ccc",
+          textAlign: "center",
+          fontSize: "14px",
+          color: "#666",
+        }}
+      >
+        制作：徳島大学まんが部　第43代部長　鈴木皐
+      </footer>
     </div>
   );
 }
