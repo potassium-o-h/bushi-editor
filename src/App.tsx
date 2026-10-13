@@ -1,5 +1,10 @@
 import { useState } from "react";
 import JSZip from "jszip";
+// JIS B5 (182 x 257 mm), 600 dpi
+const OUTPUT_DPI = 600;
+const PAGE_WIDTH = Math.round(182 / 25.4 * OUTPUT_DPI);
+const PAGE_HEIGHT = Math.round(257 / 25.4 * OUTPUT_DPI);
+
 type PrintMode = "saddle" | "single";
 type FitMode = "contain" | "cover";
 type Rotation = 0 | 90 | 180 | 270;
@@ -371,8 +376,8 @@ function App() {
     });
   }
   async function renderPageToCanvas(pageData: PageData) {
-    const pageW = 1000;
-    const pageH = 1414;
+    const pageW = PAGE_WIDTH;
+    const pageH = PAGE_HEIGHT;
     const canvas = document.createElement("canvas");
     canvas.width = pageW;
     canvas.height = pageH;
@@ -414,16 +419,16 @@ function App() {
       const text = String(pageData.number);
       const x =
         pageData.spreadSide === "左"
-          ? 60
-          : pageW - 60;
-      const y = pageH - 40;
-      ctx.font = "bold 32px sans-serif";
+          ? Math.round(pageW * 0.06)
+          : pageW - Math.round(pageW * 0.06);
+      const y = pageH - Math.round(pageH * 0.0283);
+      ctx.font = `bold ${Math.round(pageW * 0.032)}px sans-serif`;
       ctx.textBaseline = "bottom";
       ctx.textAlign =
         pageData.spreadSide === "左"
           ? "left"
           : "right";
-      ctx.lineWidth = 8;
+      ctx.lineWidth = Math.max(8, Math.round(pageW * 0.008));
       ctx.strokeStyle = "white";
       ctx.strokeText(text, x, y);
       ctx.fillStyle = "black";
@@ -431,6 +436,52 @@ function App() {
     }
     return canvas;
   }
+  // PNGのpHYsチャンクに600dpi相当の物理解像度を記録する。
+  // PNGの仕様は「1メートルあたりのピクセル数」の整数値。
+  async function canvasToPrintPng(canvas: HTMLCanvasElement): Promise<Blob> {
+    const original = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("PNGを作成できませんでした"));
+      }, "image/png");
+    });
+    const bytes = new Uint8Array(await original.arrayBuffer());
+    const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+    if (!signature.every((n, i) => bytes[i] === n)) {
+      throw new Error("PNG形式ではありません");
+    }
+    const view = new DataView(bytes.buffer);
+    const ppm = Math.round(OUTPUT_DPI / 0.0254);
+    const chunk = new Uint8Array(21);
+    const chunkView = new DataView(chunk.buffer);
+    chunkView.setUint32(0, 9); // data length
+    chunk.set([112, 72, 89, 115], 4); // pHYs
+    chunkView.setUint32(8, ppm);
+    chunkView.setUint32(12, ppm);
+    chunk[16] = 1; // unit = meter
+    let crc = 0xffffffff;
+    for (let i = 4; i < 17; i++) {
+      crc ^= chunk[i];
+      for (let bit = 0; bit < 8; bit++) {
+        crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+      }
+    }
+    chunkView.setUint32(17, (crc ^ 0xffffffff) >>> 0);
+
+    // IHDRの直後にpHYsを追加。ブラウザが付けた既存のpHYsは除外。
+    const parts: BlobPart[] = [bytes.slice(0, 33), chunk];
+    let offset = 33;
+    while (offset + 12 <= bytes.length) {
+      const length = view.getUint32(offset);
+      const end = offset + 12 + length;
+      if (end > bytes.length) throw new Error("PNGデータが破損しています");
+      const type = String.fromCharCode(...bytes.slice(offset + 4, offset + 8));
+      if (type !== "pHYs") parts.push(bytes.slice(offset, end));
+      offset = end;
+    }
+    return new Blob(parts, { type: "image/png" });
+  }
+
   async function exportPrintSheets() {
     if (pages.length === 0) {
       alert("ページ表を作成してください。");
@@ -450,12 +501,7 @@ function App() {
       try {
         for (const page of [...pages].sort((a, b) => a.page - b.page)) {
           const canvas = await renderPageToCanvas(page);
-          const blob = await new Promise<Blob>((resolve, reject) => {
-            canvas.toBlob((result) => {
-              if (result) resolve(result);
-              else reject(new Error("PNGを作成できませんでした"));
-            }, "image/png");
-          });
+          const blob = await canvasToPrintPng(canvas);
           zip.file(`page-${String(page.page).padStart(3, "0")}.png`, blob);
         }
         const zipBlob = await zip.generateAsync({ type: "blob" });
@@ -525,9 +571,9 @@ function App() {
       if (sheetNumber === "1-1") {
         const centerX = leftCanvas.width;
         ctx.strokeStyle = "black";
-        ctx.lineWidth = 6;
-        const markLength = 90;
-        const markOffset = 260;
+        ctx.lineWidth = Math.round(PAGE_WIDTH * 0.006);
+        const markLength = Math.round(PAGE_HEIGHT * (90 / 1414));
+        const markOffset = Math.round(PAGE_HEIGHT * (260 / 1414));
         ctx.beginPath();
         ctx.moveTo(
           centerX,
@@ -552,17 +598,8 @@ function App() {
         );
         ctx.stroke();
       }
-      await new Promise<void>((resolve) => {
-        sheetCanvas.toBlob((blob) => {
-          if (blob) {
-            zip.file(
-              `${sheetNumber}.png`,
-              blob
-            );
-          }
-          resolve();
-        }, "image/png");
-      });
+      const blob = await canvasToPrintPng(sheetCanvas);
+      zip.file(`${sheetNumber}.png`, blob);
     }
     const zipBlob =
       await zip.generateAsync({
